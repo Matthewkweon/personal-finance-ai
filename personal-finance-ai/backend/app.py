@@ -1,26 +1,32 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import openai
 import os
+from dotenv import load_dotenv
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
-# Set your OpenAI API key
-openai.api_key = os.environ.get('OPENAI_API_KEY')
+load_dotenv()
+
+openai.api_key = os.getenv('OPENAI_API_KEY')
+
+@app.route('/')
+def home():
+    return "Welcome to the Personal Finance AI Helper API"
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze_statement():
     if 'file' not in request.files:
         return jsonify({'error': 'No file part'}), 400
-    
+
     file = request.files['file']
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
-    
+
     if file:
-        # Read and process the file
         content = file.read().decode('utf-8')
         
-        # Use OpenAI to analyze the content
         response = openai.ChatCompletion.create(
             model="gpt-4o",
             messages=[
@@ -33,4 +39,4 @@ def analyze_statement():
         return jsonify({'summary': summary})
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, host='0.0.0.0', port=5000)

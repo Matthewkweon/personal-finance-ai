@@ -15,11 +15,11 @@ const FinanceHelper = () => {
     formData.append('file', file);
 
     try {
-      const response = await axios.post('/api/analyze', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      });
+        const response = await axios.post('http://localhost:5000/api/analyze', formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data'
+            }
+          });
       setSummary(response.data.summary);
     } catch (error) {
       console.error('Error:', error);

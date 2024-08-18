@@ -22,7 +22,7 @@ def analyze_statement():
         
         # Use OpenAI to analyze the content
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o",
             messages=[
                 {"role": "system", "content": "You are a personal finance expert. Analyze the following bank statement and provide a summary of spending and advice for cutting expenses."},
                 {"role": "user", "content": content}

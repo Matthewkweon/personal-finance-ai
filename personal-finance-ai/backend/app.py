@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import chardet
 from PyPDF2 import PdfReader
 import io
+import re
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}}, supports_credentials=True)
@@ -13,6 +14,26 @@ CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}}, supports_
 load_dotenv()
 
 openai.api_key = os.getenv('OPENAI_API_KEY')
+
+def format_summary(text):
+    # Split the text into sections based on ###
+    sections = re.split(r'(?m)^###', text)
+    
+    # Process each section
+    formatted_sections = []
+    for section in sections:
+        if section.strip():
+            # Add ### back to the beginning of each non-empty section
+            section = "###" + section
+            
+            # Replace numbered bullet points with new lines
+            section = re.sub(r'(?m)^\d+\.', r'\n\g<0>', section)
+            
+            formatted_sections.append(section.strip())
+    
+    # Join the sections with two newlines between them
+    return "\n\n".join(formatted_sections)
+
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze_statement():
@@ -71,6 +92,9 @@ def analyze_statement():
     except Exception as e:
         print("Unexpected error:", str(e))
         return jsonify({'error': 'An unexpected error occurred.'}), 500
+    summary = response.choices[0].message.content
+    formatted_summary = format_summary(summary)
+    return jsonify({'summary': formatted_summary})
 
 if __name__ == '__main__':
     app.run(debug=True)

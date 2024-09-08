@@ -7,14 +7,19 @@ import chardet
 from PyPDF2 import PdfReader
 import io
 import re
+import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 import plaid
 from plaid.api import plaid_api
 from plaid.model.transactions_get_request import TransactionsGetRequest
 from plaid.model.transactions_get_request_options import TransactionsGetRequestOptions
 from datetime import datetime, timedelta
-from twilio.rest import Client
-
+from plaid.model.link_token_create_request import LinkTokenCreateRequest
+from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUser
+from plaid.model.products import Products
+from plaid.model.country_code import CountryCode
+from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
+import random
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}}, supports_credentials=True)
 
@@ -24,14 +29,11 @@ openai.api_key = os.getenv('OPENAI_API_KEY')
 
 PLAID_CLIENT_ID = os.getenv('PLAID_CLIENT_ID')
 PLAID_SECRET = os.getenv('PLAID_SECRET')
-PLAID_ACCESS_TOKEN = os.getenv('PLAID_ACCESS_TOKEN')
 PLAID_ENV = os.getenv('PLAID_ENV', 'sandbox')
 
-# Twilio configuration
-TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
-TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
-TWILIO_FROM_NUMBER = os.getenv('TWILIO_FROM_NUMBER')
-TWILIO_TO_NUMBER = os.getenv('TWILIO_TO_NUMBER')
+# Pushover configuration
+PUSHOVER_API_TOKEN = os.getenv('PUSHOVER_API_TOKEN')
+PUSHOVER_USER_KEY = os.getenv('PUSHOVER_USER_KEY')
 
 configuration = plaid.Configuration(
     host=plaid.Environment.Sandbox,
@@ -43,10 +45,43 @@ configuration = plaid.Configuration(
 
 plaid_client = plaid_api.PlaidApi(plaid.ApiClient(configuration))
 
-# Configure Twilio client
-twilio_client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+# Global variable to store the access token
+PLAID_ACCESS_TOKEN = None
+
+@app.route('/api/create_link_token', methods=['POST'])
+def create_link_token():
+    try:
+        request = LinkTokenCreateRequest(
+            products=[Products('transactions')],
+            client_name="Your App Name",
+            country_codes=[CountryCode('US')],
+            language='en',
+            user=LinkTokenCreateRequestUser(
+                client_user_id=str(random.randint(0, 1000000))
+            )
+        )
+        response = plaid_client.link_token_create(request)
+        return jsonify(response.to_dict())
+    except plaid.ApiException as e:
+        return jsonify({"error": str(e)}), 400
+
+@app.route('/api/set_access_token', methods=['POST'])
+def set_access_token():
+    global PLAID_ACCESS_TOKEN
+    public_token = request.json['public_token']
+    try:
+        exchange_request = ItemPublicTokenExchangeRequest(
+            public_token=public_token
+        )
+        exchange_response = plaid_client.item_public_token_exchange(exchange_request)
+        PLAID_ACCESS_TOKEN = exchange_response['access_token']
+        return jsonify({"status": "success"}), 200
+    except plaid.ApiException as e:
+        return jsonify({"error": str(e)}), 400
 
 def get_daily_transactions():
+    if not PLAID_ACCESS_TOKEN:
+        return []
     start_date = (datetime.now() - timedelta(days=1)).date()
     end_date = datetime.now().date()
 
@@ -111,24 +146,31 @@ def format_summary(text):
     # Join the sections with two newlines between them
     return "\n\n".join(formatted_sections)
 
-def send_twilio_message(message):
+
+def send_pushover_message(message):
     try:
-        message = twilio_client.messages.create(
-            body=message,
-            from_=TWILIO_FROM_NUMBER,
-            to=TWILIO_TO_NUMBER
-        )
-        print(f"Message sent successfully. SID: {message.sid}")
+        data = {
+            "token": PUSHOVER_API_TOKEN,
+            "user": PUSHOVER_USER_KEY,
+            "message": message,
+            "title": "Finance Update"
+        }
+        response = requests.post("https://api.pushover.net/1/messages.json", data=data)
+        if response.status_code == 200:
+            print("Pushover message sent successfully.")
+        else:
+            print(f"Failed to send Pushover message: {response.status_code}")
     except Exception as e:
-        print(f"Failed to send message: {str(e)}")
+        print(f"Error sending Pushover message: {str(e)}")
+
 
 def daily_update():
     transactions = get_daily_transactions()
     if transactions:
         analysis = analyze_transactions(transactions)
-        send_twilio_message(analysis)
+        send_pushover_message(analysis)
     else:
-        send_twilio_message("No transactions recorded today.")
+        send_pushover_message("No transactions recorded today.")
 
 scheduler = BackgroundScheduler()
 scheduler.add_job(func=daily_update, trigger="cron", hour=20)  # Run daily at 8 PM
@@ -193,9 +235,6 @@ def analyze_statement():
     except Exception as e:
         print("Unexpected error:", str(e))
         return jsonify({'error': 'An unexpected error occurred.'}), 500
-    summary = response.choices[0].message.content
-    formatted_summary = format_summary(summary)
-    return jsonify({'summary': formatted_summary})
 
 @app.route('/api/start_daily_updates', methods=['POST'])
 def start_daily_updates():

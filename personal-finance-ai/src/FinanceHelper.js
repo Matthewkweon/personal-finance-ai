@@ -4,12 +4,13 @@ import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 
 const FinanceHelper = () => {
-  const [linkToken, setLinkToken] = useState(null);
-  const [plaidConnected, setPlaidConnected] = useState(false);
-  const [analysis, setAnalysis] = useState('');
+  const [file, setFile] = useState(null);
+  const [summary, setSummary] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [dailyUpdatesRunning, setDailyUpdatesRunning] = useState(false);
+  const [dailyUpdatesStarted, setDailyUpdatesStarted] = useState(false);
+  const [linkToken, setLinkToken] = useState(null);
+  const [plaidConnected, setPlaidConnected] = useState(false);
 
   const generateToken = useCallback(async () => {
     try {
@@ -43,16 +44,36 @@ const FinanceHelper = () => {
 
   const { open, ready } = usePlaidLink(config);
 
-  const simulateTransactions = async () => {
-    setIsLoading(true);
+  const handleFileChange = (event) => {
+    setFile(event.target.files[0]);
     setError('');
-    setAnalysis('');
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setError('');
+    setSummary('');
+    setIsLoading(true);
+
+    if (!file) {
+      setError('Please select a file first.');
+      setIsLoading(false);
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
     try {
-      const response = await axios.post('http://localhost:5000/api/simulate_transactions');
-      setAnalysis(response.data.analysis);
+      const response = await axios.post('http://localhost:5000/api/analyze', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+      setSummary(response.data.summary);
     } catch (error) {
-      console.error('Error simulating transactions:', error);
-      setError('Failed to simulate transactions. Please try again.');
+      console.error('Error details:', error);
+      setError('An error occurred while analyzing the file. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -61,22 +82,11 @@ const FinanceHelper = () => {
   const startDailyUpdates = async () => {
     try {
       const response = await axios.post('http://localhost:5000/api/start_daily_updates');
+      setDailyUpdatesStarted(true);
       alert(response.data.message);
-      setDailyUpdatesRunning(true);
     } catch (error) {
       console.error('Error starting daily updates:', error);
-      setError('Failed to start daily updates. Please try again.');
-    }
-  };
-
-  const stopDailyUpdates = async () => {
-    try {
-      const response = await axios.post('http://localhost:5000/api/stop_daily_updates');
-      alert(response.data.message);
-      setDailyUpdatesRunning(false);
-    } catch (error) {
-      console.error('Error stopping daily updates:', error);
-      setError('Failed to stop daily updates. Please try again.');
+      setError('An error occurred while starting daily updates. Please try again.');
     }
   };
 
@@ -88,24 +98,21 @@ const FinanceHelper = () => {
           Connect a bank account
         </button>
       )}
-      {plaidConnected && (
-        <>
-          <p>Bank account connected!</p>
-          <button onClick={simulateTransactions} disabled={isLoading}>
-            {isLoading ? 'Simulating...' : 'Simulate Transactions'}
-          </button>
-          {dailyUpdatesRunning ? (
-            <button onClick={stopDailyUpdates}>Stop Daily Updates</button>
-          ) : (
-            <button onClick={startDailyUpdates}>Start Daily Updates</button>
-          )}
-        </>
-      )}
+      {plaidConnected && <p>Bank account connected!</p>}
+      <form onSubmit={handleSubmit}>
+        <input type="file" onChange={handleFileChange} accept=".pdf,.txt,.csv" />
+        <button type="submit" disabled={isLoading}>
+          {isLoading ? 'Analyzing...' : 'Analyze Statement'}
+        </button>
+      </form>
+      <button onClick={startDailyUpdates} disabled={dailyUpdatesStarted || !plaidConnected}>
+        {dailyUpdatesStarted ? 'Daily Updates Started' : 'Start Daily Updates'}
+      </button>
       {error && <p style={{color: 'red'}}>{error}</p>}
-      {analysis && (
+      {summary && (
         <div>
           <h2>Analysis Summary</h2>
-          <ReactMarkdown>{analysis}</ReactMarkdown>
+          <ReactMarkdown>{summary}</ReactMarkdown>
         </div>
       )}
     </div>

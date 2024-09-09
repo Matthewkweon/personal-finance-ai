@@ -20,6 +20,7 @@ from plaid.model.products import Products
 from plaid.model.country_code import CountryCode
 from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
 import random
+import json
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}}, supports_credentials=True)
@@ -49,8 +50,32 @@ plaid_client = plaid_api.PlaidApi(plaid.ApiClient(configuration))
 # Global variable to store the access token
 PLAID_ACCESS_TOKEN = None
 
-# Simulated transactions
-simulated_transactions = []
+SIMULATED_TRANSACTIONS_FILE = 'simulated_transactions.json'
+
+def load_simulated_transactions():
+    if os.path.exists(SIMULATED_TRANSACTIONS_FILE):
+        try:
+            with open(SIMULATED_TRANSACTIONS_FILE, 'r') as f:
+                content = f.read()
+                if content.strip():  # Check if the file is not empty
+                    return json.loads(content)
+                else:
+                    print("Simulated transactions file is empty. Initializing with an empty list.")
+                    return []
+        except json.JSONDecodeError:
+            print("Error decoding JSON from simulated transactions file. Initializing with an empty list.")
+            return []
+    else:
+        print("Simulated transactions file does not exist. Initializing with an empty list.")
+        return []
+
+def save_simulated_transactions(transactions):
+    with open(SIMULATED_TRANSACTIONS_FILE, 'w') as f:
+        json.dump(transactions, f)
+
+# Load simulated transactions at startup
+simulated_transactions = load_simulated_transactions()
+
 
 @app.route('/api/create_link_token', methods=['POST'])
 def create_link_token():
@@ -89,19 +114,21 @@ def simulate_transaction():
     transaction = request.json
     transaction['date'] = datetime.now().strftime('%Y-%m-%d')
     simulated_transactions.append(transaction)
+    save_simulated_transactions(simulated_transactions)
     return jsonify({"status": "success", "transaction": transaction}), 200
+
 
 def get_daily_transactions():
     global simulated_transactions
+    today = datetime.now().date()
+    yesterday = today - timedelta(days=1)
+    
     if PLAID_ACCESS_TOKEN:
         # Use real Plaid transactions if available
-        start_date = (datetime.now() - timedelta(days=1)).date()
-        end_date = datetime.now().date()
-
         request = TransactionsGetRequest(
             access_token=PLAID_ACCESS_TOKEN,
-            start_date=start_date,
-            end_date=end_date,
+            start_date=yesterday,
+            end_date=today,
             options=TransactionsGetRequestOptions(
                 include_personal_finance_category=True
             )
@@ -110,7 +137,8 @@ def get_daily_transactions():
         return response['transactions']
     else:
         # Use simulated transactions
-        return simulated_transactions
+        return [t for t in simulated_transactions if yesterday <= datetime.strptime(t['date'], '%Y-%m-%d').date() <= today]
+
 
 def analyze_transactions(transactions):
     total_spent = sum(transaction['amount'] for transaction in transactions if transaction['amount'] > 0)
@@ -167,7 +195,7 @@ def daily_update():
         send_pushover_message("No transactions recorded today.")
 
 scheduler = BackgroundScheduler()
-scheduler.add_job(func=daily_update, trigger="interval", minutes=10)  # Run daily at 8 PM
+scheduler.add_job(func=daily_update, trigger="interval", minutes=1)  # Run daily at 8 PM
 scheduler.start()
 
 @app.route('/api/analyze', methods=['POST'])

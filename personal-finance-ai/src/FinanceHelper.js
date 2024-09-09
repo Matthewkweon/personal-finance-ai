@@ -11,6 +11,8 @@ const FinanceHelper = () => {
   const [dailyUpdatesStarted, setDailyUpdatesStarted] = useState(false);
   const [linkToken, setLinkToken] = useState(null);
   const [plaidConnected, setPlaidConnected] = useState(false);
+  const [transactionName, setTransactionName] = useState('');
+  const [transactionAmount, setTransactionAmount] = useState('');
 
   const generateToken = useCallback(async () => {
     try {
@@ -90,6 +92,31 @@ const FinanceHelper = () => {
     }
   };
 
+  const simulateTransaction = async () => {
+    try {
+      const response = await axios.post('http://localhost:5000/api/simulate_transaction', {
+        name: transactionName,
+        amount: parseFloat(transactionAmount)
+      });
+      alert('Transaction simulated successfully!');
+      setTransactionName('');
+      setTransactionAmount('');
+    } catch (error) {
+      console.error('Error simulating transaction:', error);
+      setError('An error occurred while simulating the transaction. Please try again.');
+    }
+  };
+
+  const triggerUpdate = async () => {
+    try {
+      const response = await axios.post('http://localhost:5000/api/trigger_update');
+      alert(response.data.message);
+    } catch (error) {
+      console.error('Error triggering update:', error);
+      setError('An error occurred while triggering the update. Please try again.');
+    }
+  };
+
   return (
     <div>
       <h1>Personal Finance AI Helper</h1>
@@ -105,9 +132,26 @@ const FinanceHelper = () => {
           {isLoading ? 'Analyzing...' : 'Analyze Statement'}
         </button>
       </form>
-      <button onClick={startDailyUpdates} disabled={dailyUpdatesStarted || !plaidConnected}>
+      <button onClick={startDailyUpdates} disabled={dailyUpdatesStarted}>
         {dailyUpdatesStarted ? 'Daily Updates Started' : 'Start Daily Updates'}
       </button>
+      <div>
+        <h2>Simulate Transaction</h2>
+        <input
+          type="text"
+          value={transactionName}
+          onChange={(e) => setTransactionName(e.target.value)}
+          placeholder="Transaction Name"
+        />
+        <input
+          type="number"
+          value={transactionAmount}
+          onChange={(e) => setTransactionAmount(e.target.value)}
+          placeholder="Amount"
+        />
+        <button onClick={simulateTransaction}>Simulate Transaction</button>
+      </div>
+      <button onClick={triggerUpdate}>Trigger Update</button>
       {error && <p style={{color: 'red'}}>{error}</p>}
       {summary && (
         <div>

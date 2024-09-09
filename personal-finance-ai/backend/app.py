@@ -20,6 +20,7 @@ from plaid.model.products import Products
 from plaid.model.country_code import CountryCode
 from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
 import random
+
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}}, supports_credentials=True)
 
@@ -47,6 +48,9 @@ plaid_client = plaid_api.PlaidApi(plaid.ApiClient(configuration))
 
 # Global variable to store the access token
 PLAID_ACCESS_TOKEN = None
+
+# Simulated transactions
+simulated_transactions = []
 
 @app.route('/api/create_link_token', methods=['POST'])
 def create_link_token():
@@ -79,22 +83,34 @@ def set_access_token():
     except plaid.ApiException as e:
         return jsonify({"error": str(e)}), 400
 
-def get_daily_transactions():
-    if not PLAID_ACCESS_TOKEN:
-        return []
-    start_date = (datetime.now() - timedelta(days=1)).date()
-    end_date = datetime.now().date()
+@app.route('/api/simulate_transaction', methods=['POST'])
+def simulate_transaction():
+    global simulated_transactions
+    transaction = request.json
+    transaction['date'] = datetime.now().strftime('%Y-%m-%d')
+    simulated_transactions.append(transaction)
+    return jsonify({"status": "success", "transaction": transaction}), 200
 
-    request = TransactionsGetRequest(
-        access_token=PLAID_ACCESS_TOKEN,
-        start_date=start_date,
-        end_date=end_date,
-        options=TransactionsGetRequestOptions(
-            include_personal_finance_category=True
+def get_daily_transactions():
+    global simulated_transactions
+    if PLAID_ACCESS_TOKEN:
+        # Use real Plaid transactions if available
+        start_date = (datetime.now() - timedelta(days=1)).date()
+        end_date = datetime.now().date()
+
+        request = TransactionsGetRequest(
+            access_token=PLAID_ACCESS_TOKEN,
+            start_date=start_date,
+            end_date=end_date,
+            options=TransactionsGetRequestOptions(
+                include_personal_finance_category=True
+            )
         )
-    )
-    response = plaid_client.transactions_get(request)
-    return response['transactions']
+        response = plaid_client.transactions_get(request)
+        return response['transactions']
+    else:
+        # Use simulated transactions
+        return simulated_transactions
 
 def analyze_transactions(transactions):
     total_spent = sum(transaction['amount'] for transaction in transactions if transaction['amount'] > 0)
@@ -118,34 +134,13 @@ def analyze_transactions(transactions):
     """
 
     response = openai.ChatCompletion.create(
-        model="gpt-4o",
+        model="gpt-4",
         messages=[
             {"role": "system", "content": "You are a helpful personal finance assistant."},
             {"role": "user", "content": prompt}
         ]
     )
     return response.choices[0].message['content']
-
-
-def format_summary(text):
-    # Split the text into sections based on ###
-    sections = re.split(r'(?m)^###', text)
-    
-    # Process each section
-    formatted_sections = []
-    for section in sections:
-        if section.strip():
-            # Add ### back to the beginning of each non-empty section
-            section = "###" + section
-            
-            # Replace numbered bullet points with new lines
-            section = re.sub(r'(?m)^\d+\.', r'\n\g<0>', section)
-            
-            formatted_sections.append(section.strip())
-    
-    # Join the sections with two newlines between them
-    return "\n\n".join(formatted_sections)
-
 
 def send_pushover_message(message):
     try:
@@ -163,7 +158,6 @@ def send_pushover_message(message):
     except Exception as e:
         print(f"Error sending Pushover message: {str(e)}")
 
-
 def daily_update():
     transactions = get_daily_transactions()
     if transactions:
@@ -173,10 +167,8 @@ def daily_update():
         send_pushover_message("No transactions recorded today.")
 
 scheduler = BackgroundScheduler()
-scheduler.add_job(func=daily_update, trigger="cron", hour=20)  # Run daily at 8 PM
+scheduler.add_job(func=daily_update, trigger="interval", minutes=10)  # Run daily at 8 PM
 scheduler.start()
-
-
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze_statement():
@@ -245,6 +237,15 @@ def start_daily_updates():
     except Exception as e:
         print("Error starting daily updates:", str(e))
         return jsonify({'error': 'An error occurred while starting daily updates.'}), 500
+
+@app.route('/api/trigger_update', methods=['POST'])
+def trigger_update():
+    try:
+        daily_update()
+        return jsonify({'message': 'Update triggered successfully.'}), 200
+    except Exception as e:
+        print("Error triggering update:", str(e))
+        return jsonify({'error': 'An error occurred while triggering the update.'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)

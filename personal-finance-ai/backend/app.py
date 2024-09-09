@@ -19,7 +19,9 @@ from plaid.model.link_token_create_request_user import LinkTokenCreateRequestUse
 from plaid.model.products import Products
 from plaid.model.country_code import CountryCode
 from plaid.model.item_public_token_exchange_request import ItemPublicTokenExchangeRequest
+from plaid.model.sandbox_public_token_create_request import SandboxPublicTokenCreateRequest
 import random
+
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "http://localhost:3000"}}, supports_credentials=True)
 
@@ -47,6 +49,31 @@ plaid_client = plaid_api.PlaidApi(plaid.ApiClient(configuration))
 
 # Global variable to store the access token
 PLAID_ACCESS_TOKEN = None
+
+@app.route('/api/simulate_transactions', methods=['POST'])
+def simulate_transactions():
+    global PLAID_ACCESS_TOKEN
+    if not PLAID_ACCESS_TOKEN:
+        return jsonify({"error": "No access token available. Please connect your bank account first."}), 400
+
+    try:
+        # Simulate new transactions
+        request = SandboxItemFireWebhookRequest(
+            access_token=PLAID_ACCESS_TOKEN,
+            webhook_code="DEFAULT_UPDATE"
+        )
+        plaid_client.sandbox_item_fire_webhook(request)
+
+        # Fetch the simulated transactions
+        transactions = get_daily_transactions()
+        
+        if transactions:
+            analysis = analyze_transactions(transactions)
+            return jsonify({"analysis": analysis}), 200
+        else:
+            return jsonify({"error": "No transactions were simulated."}), 400
+    except plaid.ApiException as e:
+        return jsonify({"error": f"Failed to simulate transactions: {str(e)}"}), 500
 
 @app.route('/api/create_link_token', methods=['POST'])
 def create_link_token():
@@ -82,7 +109,7 @@ def set_access_token():
 def get_daily_transactions():
     if not PLAID_ACCESS_TOKEN:
         return []
-    start_date = (datetime.now() - timedelta(days=1)).date()
+    start_date = (datetime.now() - timedelta(days=7)).date()
     end_date = datetime.now().date()
 
     request = TransactionsGetRequest(
@@ -95,6 +122,28 @@ def get_daily_transactions():
     )
     response = plaid_client.transactions_get(request)
     return response['transactions']
+
+@app.route('/api/create_sandbox_item', methods=['POST'])
+def create_sandbox_item():
+    try:
+        create_request = SandboxPublicTokenCreateRequest(
+            institution_id='ins_109508',
+            initial_products=[Products('transactions')]
+        )
+        response = plaid_client.sandbox_public_token_create(create_request)
+        public_token = response['public_token']
+        
+        exchange_request = ItemPublicTokenExchangeRequest(
+            public_token=public_token
+        )
+        exchange_response = plaid_client.item_public_token_exchange(exchange_request)
+        global PLAID_ACCESS_TOKEN
+        PLAID_ACCESS_TOKEN = exchange_response['access_token']
+        
+        return jsonify({"message": "Sandbox item created successfully", "public_token": public_token}), 200
+    except plaid.ApiException as e:
+        return jsonify({"error": f"Failed to create sandbox item: {str(e)}"}), 500
+
 
 def analyze_transactions(transactions):
     total_spent = sum(transaction['amount'] for transaction in transactions if transaction['amount'] > 0)

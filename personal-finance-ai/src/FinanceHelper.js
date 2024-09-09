@@ -4,13 +4,13 @@ import axios from 'axios';
 import ReactMarkdown from 'react-markdown';
 
 const FinanceHelper = () => {
-  const [file, setFile] = useState(null);
-  const [summary, setSummary] = useState('');
-  const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [dailyUpdatesStarted, setDailyUpdatesStarted] = useState(false);
   const [linkToken, setLinkToken] = useState(null);
   const [plaidConnected, setPlaidConnected] = useState(false);
+  const [analysis, setAnalysis] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [file, setFile] = useState(null);
+  const [summary, setSummary] = useState('');
 
   const generateToken = useCallback(async () => {
     try {
@@ -43,6 +43,36 @@ const FinanceHelper = () => {
   };
 
   const { open, ready } = usePlaidLink(config);
+
+  const simulateTransactions = async () => {
+    setIsLoading(true);
+    setError('');
+    setAnalysis('');
+    try {
+      const response = await axios.post('http://localhost:5000/api/simulate_transactions');
+      setAnalysis(response.data.analysis);
+    } catch (error) {
+      console.error('Error simulating transactions:', error);
+      setError('Failed to simulate transactions. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const createSandboxItem = async () => {
+    setIsLoading(true);
+    setError('');
+    try {
+      const response = await axios.post('http://localhost:5000/api/create_sandbox_item');
+      setPlaidConnected(true);
+      alert('Sandbox item created successfully!');
+    } catch (error) {
+      console.error('Error creating sandbox item:', error);
+      setError('Failed to create sandbox item. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleFileChange = (event) => {
     setFile(event.target.files[0]);
@@ -79,39 +109,43 @@ const FinanceHelper = () => {
     }
   };
 
-  const startDailyUpdates = async () => {
-    try {
-      const response = await axios.post('http://localhost:5000/api/start_daily_updates');
-      setDailyUpdatesStarted(true);
-      alert(response.data.message);
-    } catch (error) {
-      console.error('Error starting daily updates:', error);
-      setError('An error occurred while starting daily updates. Please try again.');
-    }
-  };
-
   return (
     <div>
       <h1>Personal Finance AI Helper</h1>
       {!plaidConnected && (
-        <button onClick={() => open()} disabled={!ready || !linkToken}>
-          Connect a bank account
-        </button>
+        <>
+          <button onClick={() => open()} disabled={!ready || !linkToken}>
+            Connect a real bank account
+          </button>
+          <button onClick={createSandboxItem} disabled={isLoading}>
+            Create Sandbox Item
+          </button>
+        </>
       )}
-      {plaidConnected && <p>Bank account connected!</p>}
+      {plaidConnected && (
+        <>
+          <p>Bank account connected!</p>
+          <button onClick={simulateTransactions} disabled={isLoading}>
+            {isLoading ? 'Simulating...' : 'Simulate Transactions'}
+          </button>
+        </>
+      )}
       <form onSubmit={handleSubmit}>
         <input type="file" onChange={handleFileChange} accept=".pdf,.txt,.csv" />
         <button type="submit" disabled={isLoading}>
           {isLoading ? 'Analyzing...' : 'Analyze Statement'}
         </button>
       </form>
-      <button onClick={startDailyUpdates} disabled={dailyUpdatesStarted || !plaidConnected}>
-        {dailyUpdatesStarted ? 'Daily Updates Started' : 'Start Daily Updates'}
-      </button>
       {error && <p style={{color: 'red'}}>{error}</p>}
+      {analysis && (
+        <div>
+          <h2>Transaction Analysis</h2>
+          <ReactMarkdown>{analysis}</ReactMarkdown>
+        </div>
+      )}
       {summary && (
         <div>
-          <h2>Analysis Summary</h2>
+          <h2>Statement Analysis</h2>
           <ReactMarkdown>{summary}</ReactMarkdown>
         </div>
       )}

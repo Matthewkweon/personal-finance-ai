@@ -195,7 +195,7 @@ def daily_update():
         send_pushover_message("No transactions recorded today.")
 
 scheduler = BackgroundScheduler()
-scheduler.add_job(func=daily_update, trigger="interval", minutes=1)  # Run daily at 8 PM
+scheduler.add_job(func=daily_update, trigger="interval", minutes=5)  # Run daily at 8 PM
 scheduler.start()
 
 @app.route('/api/analyze', methods=['POST'])
